@@ -211,3 +211,39 @@ npm start -- --figma-token YOUR_FIGMA_TOKEN
 ## License
 
 This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+
+## Security Features
+
+This MCP server includes comprehensive security measures:
+
+### Input Validation
+- All Figma file keys, node IDs, team IDs, and other parameters are validated using strict regex patterns
+- Comment text is sanitized to prevent injection attacks
+- Webhook URLs are validated and restricted to HTTPS only
+- Emoji inputs are validated to prevent malicious content
+
+### Rate Limiting
+- Built-in rate limiting (100 requests per minute by default) to prevent abuse
+- Configurable rate limits per client identifier
+
+### Error Handling
+- Secure error messages that don't leak sensitive information to users
+- Detailed error logging for debugging while hiding internal details from clients
+- Proper HTTP status code handling
+
+### Token Security
+- API tokens must be provided via environment variables only (no command-line arguments)
+- Token format validation before use
+- Secure token handling in request interceptors
+
+### Network Security
+- HTTPS-only communication with Figma API
+- Request timeout configuration (30 seconds)
+- Retry logic with exponential backoff for failed requests
+- Response interceptors for secure error handling
+
+### Container Security
+- Non-root user execution in Docker containers
+- Minimal Alpine Linux base image
+- No exposed ports (runs on stdio only)
+- Dependency vulnerability scanning during build

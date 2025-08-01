@@ -9,6 +9,21 @@ import {
 import { z } from 'zod';
 import apiClientInstance, { setFigmaToken } from "./src/api/ApiBase.js";
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { 
+    validateFileKey, 
+    validateNodeIds, 
+    validateTeamId, 
+    validateProjectId, 
+    validateComponentKey,
+    validateCommentId,
+    validateWebhookUrl,
+    validateWebhookId,
+    sanitizeCommentText,
+    validateEmoji,
+    SecurityValidationError
+} from "./src/security/validators.js";
+import { globalRateLimiter } from "./src/security/rateLimiter.js";
+import { sanitizeError, logSecureError } from "./src/security/errorHandler.js";
 
 const responseToString = (response: any) => {
     return {
@@ -16,9 +31,9 @@ const responseToString = (response: any) => {
     };
 }
 
-// Common schema definitions
+// Common schema definitions with validation
 const FileKeySchema = z.object({
-    fileKey: z.string().describe("The file key to use for the operation")
+    fileKey: z.string().describe("The file key to use for the operation").transform(validateFileKey)
 });
 
 const FigmaGetCommentsArgumentsSchema = FileKeySchema.extend({
@@ -26,32 +41,32 @@ const FigmaGetCommentsArgumentsSchema = FileKeySchema.extend({
 });
 
 const PostCommentArgumentsSchema = FileKeySchema.extend({
-    message: z.string().describe("The text contents of the comment to post"),
-    comment_id: z.string().optional().describe("The ID of the comment to reply to, if any"),
+    message: z.string().describe("The text contents of the comment to post").transform(sanitizeCommentText),
+    comment_id: z.string().optional().describe("The ID of the comment to reply to, if any").transform((val: string | undefined) => val ? validateCommentId(val) : val),
     client_meta: z.any().optional().describe("The position where to place the comment")
 });
 
 const DeleteCommentArgumentsSchema = FileKeySchema.extend({
-    commentId: z.string().describe("The ID of the comment to delete")
+    commentId: z.string().describe("The ID of the comment to delete").transform(validateCommentId)
 });
 
 const GetCommentReactionsArgumentsSchema = FileKeySchema.extend({
-    commentId: z.string().describe("The ID of the comment to get reactions for"),
+    commentId: z.string().describe("The ID of the comment to get reactions for").transform(validateCommentId),
     cursor: z.string().optional().describe("Cursor for pagination")
 });
 
 const PostCommentReactionArgumentsSchema = FileKeySchema.extend({
-    commentId: z.string().describe("The ID of the comment to add a reaction to"),
-    emoji: z.string().describe("The emoji to react with")
+    commentId: z.string().describe("The ID of the comment to add a reaction to").transform(validateCommentId),
+    emoji: z.string().describe("The emoji to react with").transform(validateEmoji)
 });
 
 const DeleteCommentReactionArgumentsSchema = FileKeySchema.extend({
-    commentId: z.string().describe("The ID of the comment to delete a reaction from"),
-    emoji: z.string().describe("The emoji to remove")
+    commentId: z.string().describe("The ID of the comment to delete a reaction from").transform(validateCommentId),
+    emoji: z.string().describe("The emoji to remove").transform(validateEmoji)
 });
 
 const GetFileNodesArgumentsSchema = FileKeySchema.extend({
-    ids: z.string().describe("A comma separated list of node IDs to retrieve and convert"),
+    ids: z.string().describe("A comma separated list of node IDs to retrieve and convert").transform(validateNodeIds),
     version: z.string().optional().describe("A specific version ID to get"),
     depth: z.number().optional().describe("Positive integer representing how deep into the node tree to traverse"),
     geometry: z.string().optional().describe("Set to \"paths\" to export vector data"),
@@ -65,7 +80,7 @@ const GetFileVersionsArgumentsSchema = FileKeySchema.extend({
 });
 
 const GetImagesArgumentsSchema = FileKeySchema.extend({
-    ids: z.string().describe("A comma separated list of node IDs to render"),
+    ids: z.string().describe("A comma separated list of node IDs to render").transform(validateNodeIds),
     version: z.string().optional().describe("A specific version ID to get"),
     scale: z.number().optional().describe("A number between 0.01 and 4, the image scaling factor"),
     format: z.enum(["jpg", "png", "svg", "pdf"]).optional().describe("A string enum for the image output format"),
@@ -78,45 +93,45 @@ const GetImagesArgumentsSchema = FileKeySchema.extend({
 });
 
 const GetTeamProjectsArgumentsSchema = z.object({
-    teamId: z.string().describe("The ID of the team to get projects for")
+    teamId: z.string().describe("The ID of the team to get projects for").transform(validateTeamId)
 });
 
 const GetProjectFilesArgumentsSchema = z.object({
-    projectId: z.string().describe("The ID of the project to get files for"),
+    projectId: z.string().describe("The ID of the project to get files for").transform(validateProjectId),
     branch_data: z.boolean().optional().describe("Returns branch metadata in the response")
 });
 
 const GetTeamComponentsArgumentsSchema = z.object({
-    teamId: z.string().describe("The ID of the team to get components for"),
+    teamId: z.string().describe("The ID of the team to get components for").transform(validateTeamId),
     page_size: z.number().optional().describe("Number of items to return in a paged list of results"),
     after: z.number().optional().describe("Cursor indicating which id after which to start retrieving components for"),
     before: z.number().optional().describe("Cursor indicating which id before which to start retrieving components for")
 });
 
 const GetTeamComponentSetsArgumentsSchema = z.object({
-    teamId: z.string().describe("The ID of the team to get component sets for"),
+    teamId: z.string().describe("The ID of the team to get component sets for").transform(validateTeamId),
     page_size: z.number().optional().describe("Number of items to return in a paged list of results"),
     after: z.number().optional().describe("Cursor indicating which id after which to start retrieving component sets for"),
     before: z.number().optional().describe("Cursor indicating which id before which to start retrieving component sets for")
 });
 
 const GetTeamStylesArgumentsSchema = z.object({
-    teamId: z.string().describe("The ID of the team to get styles for"),
+    teamId: z.string().describe("The ID of the team to get styles for").transform(validateTeamId),
     page_size: z.number().optional().describe("Number of items to return in a paged list of results"),
     after: z.number().optional().describe("Cursor indicating which id after which to start retrieving styles for"),
     before: z.number().optional().describe("Cursor indicating which id before which to start retrieving styles for")
 });
 
 const GetComponentArgumentsSchema = z.object({
-    key: z.string().describe("The key of the component to get")
+    key: z.string().describe("The key of the component to get").transform(validateComponentKey)
 });
 
 const GetComponentSetArgumentsSchema = z.object({
-    key: z.string().describe("The key of the component set to get")
+    key: z.string().describe("The key of the component set to get").transform(validateComponentKey)
 });
 
 const GetStyleArgumentsSchema = z.object({
-    key: z.string().describe("The key of the style to get")
+    key: z.string().describe("The key of the style to get").transform(validateComponentKey)
 });
 
 const GetFileArgumentsSchema = FileKeySchema.extend({
@@ -128,34 +143,34 @@ const GetFileArgumentsSchema = FileKeySchema.extend({
     branch_data: z.boolean().optional().describe("Returns branch metadata for the requested file")
 });
 
-// Add these webhook schemas
+// Add these webhook schemas with security validation
 const PostWebhookArgumentsSchema = z.object({
     event_type: z.string().describe("An enum representing the possible events that a webhook can subscribe to"),
-    team_id: z.string().describe("Team id to receive updates about"),
-    endpoint: z.string().describe("The HTTP endpoint that will receive a POST request when the event triggers"),
+    team_id: z.string().describe("Team id to receive updates about").transform(validateTeamId),
+    endpoint: z.string().describe("The HTTP endpoint that will receive a POST request when the event triggers").transform((url: string) => validateWebhookUrl(url, true)), // Allow localhost for VM use
     passcode: z.string().describe("String that will be passed back to your webhook endpoint to verify that it is being called by Figma"),
     status: z.string().optional().describe("State of the webhook, including any error state it may be in"),
     description: z.string().optional().describe("User provided description or name for the webhook")
 });
 
 const GetWebhookArgumentsSchema = z.object({
-    webhook_id: z.string().describe("The ID of the webhook to get")
+    webhook_id: z.string().describe("The ID of the webhook to get").transform(validateWebhookId)
 });
 
 const UpdateWebhookArgumentsSchema = z.object({
-    webhook_id: z.string().describe("The ID of the webhook to update"),
-    endpoint: z.string().optional().describe("The HTTP endpoint that will receive a POST request when the event triggers"),
+    webhook_id: z.string().describe("The ID of the webhook to update").transform(validateWebhookId),
+    endpoint: z.string().optional().describe("The HTTP endpoint that will receive a POST request when the event triggers").transform((url: string | undefined) => url ? validateWebhookUrl(url, true) : url),
     passcode: z.string().optional().describe("String that will be passed back to your webhook endpoint to verify that it is being called by Figma"),
     status: z.string().optional().describe("State of the webhook, including any error state it may be in"),
     description: z.string().optional().describe("User provided description or name for the webhook")
 });
 
 const DeleteWebhookArgumentsSchema = z.object({
-    webhook_id: z.string().describe("The ID of the webhook to delete")
+    webhook_id: z.string().describe("The ID of the webhook to delete").transform(validateWebhookId)
 });
 
 const GetTeamWebhooksArgumentsSchema = z.object({
-    team_id: z.string().describe("The ID of the team to get webhooks for")
+    team_id: z.string().describe("The ID of the team to get webhooks for").transform(validateTeamId)
 });
 
 // Library analytics schemas
@@ -365,8 +380,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 // Handle tool execution
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     const { name, arguments: args } = request.params;
+    
+    // Apply rate limiting (using a simple identifier - in production, you'd use user/session ID)
+    const clientId = 'mcp-client'; // In a real scenario, this would be user-specific
+    if (!globalRateLimiter.isAllowed(clientId)) {
+        throw new Error('Rate limit exceeded. Please wait before making more requests.');
+    }
 
     try {
         switch (name) {
@@ -535,56 +556,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
     } catch (error) {
+        // Log the detailed error securely
+        logSecureError(error, `Tool execution: ${name}`, { args });
+
         if (error instanceof z.ZodError) {
             throw new Error(
                 `Invalid arguments: ${error.errors
-                    .map((e) => `${e.path.join(".")}: ${e.message}`)
+                    .map((e: any) => `${e.path.join(".")}: ${e.message}`)
                     .join(", ")}`
             );
         }
         
-        // Add detailed error logging
-        const err = error as any;
-        console.error("Error details:", {
-            message: err.message,
-            stack: err.stack,
-            response: err.response?.data || null,
-            status: err.response?.status || null,
-            headers: err.response?.headers || null,
-            name: err.name,
-            fullError: JSON.stringify(err, Object.getOwnPropertyNames(err), 2)
-        });
+        if (error instanceof SecurityValidationError) {
+            throw new Error(`Security validation failed: ${error.message}`);
+        }
         
-        throw new Error(`Error executing tool ${name}: ${err.message}${err.response?.data ? ` - Response: ${JSON.stringify(err.response.data)}` : ''}`);
+        // Sanitize error for user
+        const { userMessage } = sanitizeError(error, `executing ${name}`);
+        throw new Error(userMessage);
     }
 });
 
 // Start the server
 async function main() {
     try {
-        // Parse command line arguments
-        const args = process.argv.slice(2);
-        let figmaToken;
-
-        // Look for --token or -t flag
-        for (let i = 0; i < args.length; i++) {
-            if ((args[i] === '--figma-token' || args[i] === '-ft') && i + 1 < args.length) {
-                figmaToken = args[i + 1];
-                break;
-            }
-        }
-
-        // Check for token in environment variable if not provided in args
-        if (!figmaToken) {
-            figmaToken = process.env.FIGMA_API_KEY;
-        }
+        // Only get token from environment variable for security
+        const figmaToken = process.env.FIGMA_API_KEY;
 
         // Set the token if provided
         if (figmaToken) {
             setFigmaToken(figmaToken);
         } else {
-            console.error("Warning: No Figma API token provided. Set FIGMA_API_KEY environment variable or use --figma-token flag.");
-            throw new Error("No Figma API token provided. Set FIGMA_API_KEY environment variable or use --figma-token flag.");
+            console.error("Error: No Figma API token provided. Set FIGMA_API_KEY environment variable.");
+            throw new Error("No Figma API token provided. Set FIGMA_API_KEY environment variable.");
         }
 
         console.error("Starting MCP Figma Server...");
